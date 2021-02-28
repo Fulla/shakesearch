@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 )
 
 func main() {
@@ -36,8 +37,9 @@ func main() {
 }
 
 type Searcher struct {
-	CompleteWorks string
-	SuffixArray   *suffixarray.Index
+	CompleteWorks          string
+	CompleteWorksNoSymbols string
+	SuffixArray            *suffixarray.Index
 }
 
 func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request) {
@@ -62,18 +64,28 @@ func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request
 	}
 }
 
+func simplifyText(input []byte) []byte {
+	symbolsRe, _ := regexp.Compile(`[\',;.-:]`)
+	noSymbols := symbolsRe.ReplaceAll(input, []byte(""))
+	lowerCase := bytes.ToLower(noSymbols)
+	return lowerCase
+}
+
 func (s *Searcher) Load(filename string) error {
 	dat, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return fmt.Errorf("Load: %w", err)
 	}
+	simplifiedDat := simplifyText(dat)
 	s.CompleteWorks = string(dat)
-	s.SuffixArray = suffixarray.New(dat)
+	s.CompleteWorksNoSymbols = string(simplifiedDat)
+	s.SuffixArray = suffixarray.New(simplifiedDat)
 	return nil
 }
 
 func (s *Searcher) Search(query string) []string {
-	idxs := s.SuffixArray.Lookup([]byte(query), -1)
+	simplifiedQuery := simplifyText([]byte(query))
+	idxs := s.SuffixArray.Lookup(simplifiedQuery, -1)
 	results := []string{}
 	for _, idx := range idxs {
 		results = append(results, s.CompleteWorks[idx-250:idx+250])
