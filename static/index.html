@@ -9,6 +9,7 @@
 </head>
 
 <body>
+  <div id="container">
     <p>
         <form id="form">
             <label for="query">Query</label>
@@ -18,11 +19,11 @@
             <button type="submit">Search</button>
         </form>
     </p>
-    <p>
-        <table id="table">
-          <tbody id="table-body"></tbody>
-        </table>
-    </p>
+    <div id="results">
+      <h3>Results:</h3>
+      <div id="result-body"></div>
+    </div>
+  </div>
   <script src="app.js"></script>
 </body>
 

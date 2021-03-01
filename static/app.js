@@ -12,12 +12,15 @@ const Controller = {
   },
 
   updateTable: (results) => {
-    const table = document.getElementById("table-body");
-    const rows = [];
+    const body = document.getElementById("result-body");
     for (let result of results) {
-      rows.push(`<tr>${result}<tr/>`);
+      const hr = document.createElement("hr")
+      body.appendChild(hr);
+      const res = document.createElement("div")
+      res.innerHTML = `<p>${result}</p>`
+      res.className = "result"
+      body.appendChild(res);
     }
-    table.innerHTML = rows;
   },
 };
 
