@@ -12,6 +12,11 @@ import (
 	"regexp"
 )
 
+const (
+	PHRMODE = "phr"
+	AWMODE  = "aw"
+)
+
 func main() {
 	searcher := Searcher{}
 	err := searcher.Load("completeworks.txt")
@@ -37,9 +42,11 @@ func main() {
 }
 
 type Searcher struct {
-	CompleteWorks          string
-	CompleteWorksNoSymbols string
-	SuffixArray            *suffixarray.Index
+	CompleteWorks           string
+	simplifiedCompleteWorks string
+	SuffixArray             *suffixarray.Index
+	searchParagraphs        *Paragraphs
+	resultParagraphs        *Paragraphs
 }
 
 func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +57,11 @@ func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request
 			w.Write([]byte("missing search query in URL params"))
 			return
 		}
-		results := searcher.Search(query[0])
+		mode := r.URL.Query().Get("m")
+		if mode == "" {
+			mode = AWMODE
+		}
+		results := searcher.Search(query[0], mode)
 		buf := &bytes.Buffer{}
 		enc := json.NewEncoder(buf)
 		err := enc.Encode(results)
@@ -74,21 +85,75 @@ func simplifyText(input []byte) []byte {
 func (s *Searcher) Load(filename string) error {
 	dat, err := ioutil.ReadFile(filename)
 	if err != nil {
-		return fmt.Errorf("Load: %w", err)
+		return fmt.Errorf("Load: %+v", err)
 	}
+	dat = bytes.TrimSpace(dat)
+	dat = bytes.ReplaceAll(dat, []byte("\r\n"), []byte("\n"))
+	dat = bytes.ReplaceAll(dat, []byte("\r"), []byte("\n"))
 	simplifiedDat := simplifyText(dat)
 	s.CompleteWorks = string(dat)
-	s.CompleteWorksNoSymbols = string(simplifiedDat)
+	s.simplifiedCompleteWorks = string(simplifiedDat)
 	s.SuffixArray = suffixarray.New(simplifiedDat)
+	s.searchParagraphs = newParagraphs(s.simplifiedCompleteWorks)
+	s.resultParagraphs = newParagraphs(s.CompleteWorks)
 	return nil
 }
 
-func (s *Searcher) Search(query string) []string {
-	simplifiedQuery := simplifyText([]byte(query))
-	idxs := s.SuffixArray.Lookup(simplifiedQuery, -1)
-	results := []string{}
+func (s *Searcher) SearchPhrase(query []byte) map[int]bool {
+	// returns the list of ids for the paragraphs containing
+	// the exact phrase in query
+	idxs := s.SuffixArray.Lookup(query, -1)
+	pIds := make(map[int]bool, 0)
 	for _, idx := range idxs {
-		results = append(results, s.CompleteWorks[idx-250:idx+250])
+		pId, err := s.searchParagraphs.ParagraphForTextIndex(idx)
+		if err != nil {
+			log.Panic(err)
+			continue
+		}
+		pIds[pId] = true
+	}
+	return pIds
+}
+
+func (s *Searcher) SearchAllWords(query []byte) map[int]bool {
+	// returns the set of ids for the paragraphs containing
+	// all words in the query (even if they are not contiguous)
+	words := bytes.Split(query, []byte(" "))
+	partChans := make(chan map[int]bool, len(words))
+	var partials []map[int]bool
+	for _, word := range words {
+		go func(w []byte) {
+			idxs := s.SearchPhrase(w)
+			partChans <- idxs
+		}(word)
+	}
+	for part := range partChans {
+		partials = append(partials, part)
+		if len(partials) == len(words) {
+			close(partChans)
+		}
+	}
+	return intersection(partials)
+}
+
+func (s *Searcher) ResultText(paragraphId int) string {
+	p := s.resultParagraphs.Get(paragraphId)
+	pText := s.CompleteWorks[p.from:p.to]
+	return pText
+}
+
+func (s *Searcher) Search(query string, mode string) []string {
+	simplifiedQuery := simplifyText([]byte(query))
+	results := []string{}
+	var paragraphs map[int]bool
+	if mode == AWMODE {
+		paragraphs = s.SearchAllWords(simplifiedQuery)
+	} else {
+		paragraphs = s.SearchPhrase(simplifiedQuery)
+	}
+	for id := range paragraphs {
+		text := s.ResultText(id)
+		results = append(results, text)
 	}
 	return results
 }
