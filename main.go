@@ -47,6 +47,12 @@ type Searcher struct {
 	SuffixArray             *suffixarray.Index
 	searchParagraphs        *Paragraphs
 	resultParagraphs        *Paragraphs
+	sections                *Sections
+}
+
+type TextResponse struct {
+	Text string `json:"text"`
+	Work string `json:"work"`
 }
 
 func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request) {
@@ -90,12 +96,14 @@ func (s *Searcher) Load(filename string) error {
 	dat = bytes.TrimSpace(dat)
 	dat = bytes.ReplaceAll(dat, []byte("\r\n"), []byte("\n"))
 	dat = bytes.ReplaceAll(dat, []byte("\r"), []byte("\n"))
+	dat = bytes.ReplaceAll(dat, []byte("’"), []byte("'"))
 	simplifiedDat := simplifyText(dat)
 	s.CompleteWorks = string(dat)
 	s.simplifiedCompleteWorks = string(simplifiedDat)
 	s.SuffixArray = suffixarray.New(simplifiedDat)
 	s.searchParagraphs = newParagraphs(s.simplifiedCompleteWorks)
 	s.resultParagraphs = newParagraphs(s.CompleteWorks)
+	s.sections = newSections(s.CompleteWorks)
 	return nil
 }
 
@@ -150,15 +158,25 @@ func (s *Searcher) SearchAllWords(query []byte) map[int]bool {
 	return intersection(partials)
 }
 
-func (s *Searcher) ResultText(paragraphId int) string {
+func (s *Searcher) ResultText(paragraphId int) TextResponse {
 	p := s.resultParagraphs.Get(paragraphId)
 	pText := s.CompleteWorks[p.from:p.to]
-	return pText
+	w, _ := s.sections.FindWorkByTextIndex(p.from)
+	title := ""
+	if w != nil {
+		title = w.title
+	}
+
+	res := TextResponse{
+		Text: pText,
+		Work: title,
+	}
+	return res
 }
 
-func (s *Searcher) Search(query string, mode string) []string {
+func (s *Searcher) Search(query string, mode string) []TextResponse {
 	simplifiedQuery := simplifyText([]byte(query))
-	results := []string{}
+	var results []TextResponse
 	var paragraphs map[int]bool
 	if mode == AWMODE {
 		paragraphs = s.SearchAllWords(simplifiedQuery)

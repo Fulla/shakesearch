@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"regexp"
+	"strings"
 )
 
 type Paragraph struct {
@@ -92,4 +94,94 @@ func intersection(sets []map[int]bool) map[int]bool {
 		intersec[elem] = true
 	}
 	return intersec
+}
+
+type Work struct {
+	title string
+	from  int
+	to    int
+}
+
+func (w *Work) Includes(index int) bool {
+	return w.from <= index && index <= w.to
+}
+
+type Section struct {
+	title string
+	from  int
+	to    int
+}
+
+type Sections struct {
+	sections []Section
+	works    []Work
+}
+
+func (s *Sections) FindWorkByTextIndex(index int) (*Work, error) {
+	// returns the work to which it belongs the character at input index
+	for _, w := range s.works {
+		if w.Includes(index) {
+			return &w, nil
+		}
+	}
+	return nil, fmt.Errorf("No work found for text idx %d", index)
+}
+
+func getTitles(beginning string) []string {
+	parts := strings.Split(beginning, "Contents")
+	if len(parts) < 2 {
+		return nil
+	}
+	indice := strings.TrimSpace(parts[1])
+	matches := strings.Split(indice, "\n\n")
+	var titles []string
+	for _, res := range matches {
+		title := strings.TrimSpace(res)
+		titles = append(titles, title)
+	}
+	return titles
+}
+
+func getWorks(text string, titles []string, shiftIndex int) []Work {
+	titlesOpts := strings.Join(titles, "|")
+	rexp := fmt.Sprintf("[\n\r]{2,}(?P<title>(%s))[\n\r]{2,}", titlesOpts)
+	workRe, _ := regexp.Compile(rexp)
+	matches := workRe.FindAllStringSubmatchIndex(text, -1)
+	var works []Work
+	for i, indexes := range matches {
+		title := text[indexes[2]:indexes[3]]
+		to := len(text)
+		if i < len(matches)-1 {
+			to = matches[i+1][2]
+		}
+		p := Work{
+			title: title,
+			from:  indexes[2] + shiftIndex,
+			to:    to + shiftIndex,
+		}
+		works = append(works, p)
+	}
+	return works
+}
+
+func (s *Sections) Initialize(text string) error {
+	parts := strings.SplitN(text, "\n\n\n\n\n\n", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("failed to split indice and content. Found %d parts", len(parts))
+	}
+	indice := parts[0]
+	content := parts[1]
+	titles := getTitles(indice)
+	works := getWorks(content, titles, len(indice)-1)
+	s.works = works
+	return nil
+}
+
+func newSections(text string) *Sections {
+	s := &Sections{}
+	err := s.Initialize(text)
+	if err != nil {
+		log.Panic(err)
+	}
+	return s
 }

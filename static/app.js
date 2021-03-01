@@ -3,7 +3,6 @@ const Controller = {
     ev.preventDefault();
     const form = document.getElementById("form");
     const data = Object.fromEntries(new FormData(form));
-    console.log("data", data)
     const response = fetch(`/search?q=${data.query}&m=${data.mode}`).then((response) => {
       response.json().then((results) => {
         Controller.updateTable(results);
@@ -14,11 +13,14 @@ const Controller = {
   updateTable: (results) => {
     const body = document.getElementById("result-body");
     for (let result of results) {
-      const hr = document.createElement("hr")
+      const hr = document.createElement("hr");
       body.appendChild(hr);
-      const res = document.createElement("div")
-      res.innerHTML = `<p>${result}</p>`
-      res.className = "result"
+      const res = document.createElement("div");
+      // const work = document.createElement("h4")
+      // work.innerText = `from ${result.work}:`
+      res.innerHTML = (`<h4>from ${result.work}</h4>`+
+        `<p>${result.text}</p>`);
+      res.className = "result";
       body.appendChild(res);
     }
   },
