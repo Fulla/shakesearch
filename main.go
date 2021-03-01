@@ -115,19 +115,33 @@ func (s *Searcher) SearchPhrase(query []byte) map[int]bool {
 	return pIds
 }
 
+func (s *Searcher) AsyncSearchWord(w []byte, result chan map[int]bool,
+	done chan struct{}) {
+
+	idxs := s.SearchPhrase(w)
+	select {
+	case result <- idxs:
+	case <-done:
+		return
+	}
+}
+
 func (s *Searcher) SearchAllWords(query []byte) map[int]bool {
 	// returns the set of ids for the paragraphs containing
 	// all words in the query (even if they are not contiguous)
 	words := bytes.Split(query, []byte(" "))
 	partChans := make(chan map[int]bool, len(words))
+	done := make(chan struct{})
 	var partials []map[int]bool
 	for _, word := range words {
-		go func(w []byte) {
-			idxs := s.SearchPhrase(w)
-			partChans <- idxs
-		}(word)
+		go s.AsyncSearchWord(word, partChans, done)
 	}
 	for part := range partChans {
+		if len(part) < 1 {
+			// early return when no intersection is possible
+			close(done)
+			return map[int]bool{}
+		}
 		partials = append(partials, part)
 		if len(partials) == len(words) {
 			close(partChans)
