@@ -171,7 +171,7 @@ func searchIndexInLines(searchIdx int, lines []string) int {
 	return len(lines)
 }
 
-func (s *Searcher) ResultText(paragraphId int, words [][]byte) (TextResponse, error) {
+func (s *Searcher) ResultText(paragraphId int, words [][]byte) TextResponse {
 	p := s.resultParagraphs.Get(paragraphId)
 	pText := s.CompleteWorks[p.from:p.to]
 	w, _ := s.sections.FindWorkByTextIndex(p.from)
@@ -182,7 +182,8 @@ func (s *Searcher) ResultText(paragraphId int, words [][]byte) (TextResponse, er
 	textLines := strings.Split(pText, "\n")
 	midWordIdx, err := searchInText(pText, words)
 	if err != nil {
-		return TextResponse{}, err
+		log.Print(err)
+		midWordIdx = []int{0, 5}
 	}
 	lineForWord := searchIndexInLines(midWordIdx[0], textLines)
 	if len(textLines) > MAXLINES {
@@ -194,7 +195,7 @@ func (s *Searcher) ResultText(paragraphId int, words [][]byte) (TextResponse, er
 		Text: textLines,
 		Work: title,
 	}
-	return res, nil
+	return res
 }
 
 func (s *Searcher) Search(query string, mode string) []TextResponse {
@@ -208,11 +209,7 @@ func (s *Searcher) Search(query string, mode string) []TextResponse {
 		paragraphs, words = s.SearchPhrase(simplifiedQuery)
 	}
 	for id := range paragraphs {
-		text, err := s.ResultText(id, words)
-		if err != nil {
-			log.Panic(err)
-			continue
-		}
+		text := s.ResultText(id, words)
 		results = append(results, text)
 	}
 	return results

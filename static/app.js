@@ -12,6 +12,7 @@ const Controller = {
 
   updateTable: (results) => {
     const body = document.getElementById("result-body");
+    body.innerHTML = ''
     for (let result of results) {
       const hr = document.createElement("hr");
       body.appendChild(hr);
