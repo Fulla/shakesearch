@@ -69,25 +69,25 @@ func newParagraphs(text string) *Paragraphs {
 	return ps
 }
 
-func allContain(sets []map[int][]int, elem int) bool {
+func allContain(sets []map[int]bool, elem int) bool {
 	for _, s := range sets {
-		if _, ok := s[elem]; ok {
+		if !s[elem] {
 			return false
 		}
 	}
 	return true
 }
 
-func intersection(sets []map[int][]int) map[int][]int {
+func intersection(sets []map[int]bool) map[int]bool {
 	if len(sets) < 1 {
-		return map[int][]int{}
+		return map[int]bool{}
 	}
 	if len(sets) == 1 {
 		return sets[0]
 	}
 	base := sets[0]
 	others := sets[1:]
-	intersec := make(map[int][]int)
+	intersec := make(map[int]bool)
 	for elem, indexes := range base {
 		if !allContain(others, elem) {
 			continue
@@ -206,4 +206,20 @@ func balanceLines(lines []string, targetLine int) []string {
 	endLine := minInt(targetLine+MAXLINES, len(lines))
 	half := int(math.Floor((float64(startLine) + float64(endLine)) / float64(2)))
 	return lines[half-MAXLINES/2 : half+(MAXLINES/2)]
+}
+
+func searchInText(text string, wds [][]byte) ([]int, error) {
+	var words []string
+	text = strings.ToLower(text)
+	for _, w := range wds {
+		words = append(words, string(w))
+	}
+	rexp := fmt.Sprintf("(%s)", strings.Join(words, "|"))
+	re, _ := regexp.Compile(rexp)
+	matches := re.FindAllStringIndex(text, -1)
+	if len(matches) < 1 {
+		return []int{}, fmt.Errorf("Didnt find any of %+v in %s", words, text)
+	}
+	mid := int(math.Floor(float64(len(matches)) / float64(2)))
+	return matches[mid], nil
 }

@@ -57,3 +57,6 @@ If I have had more time,
 You can see the live version at
 https://shakesearch-fulla.herokuapp.com.
 
+#### A test case:
+
+Try selecting the "All words" mode, and input query "ship master". It should return all paragraphs (or 10 lines extract of them) containing both "ship" and "master".

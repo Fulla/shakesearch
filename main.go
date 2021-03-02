@@ -109,26 +109,26 @@ func (s *Searcher) Load(filename string) error {
 	return nil
 }
 
-func (s *Searcher) SearchPhrase(query []byte) map[int][]int {
+func (s *Searcher) SearchPhrase(query []byte) (map[int]bool, [][]byte) {
 	// returns the list of ids for the paragraphs containing
 	// the exact phrase in query
 	idxs := s.SuffixArray.Lookup(query, -1)
-	pIds := make(map[int][]int, 0)
+	pIds := make(map[int]bool, 0)
 	for _, idx := range idxs {
 		pId, err := s.searchParagraphs.ParagraphForTextIndex(idx)
 		if err != nil {
 			log.Panic(err)
 			continue
 		}
-		pIds[pId] = []int{idx, idx + len(query)}
+		pIds[pId] = true
 	}
-	return pIds
+	return pIds, [][]byte{query}
 }
 
-func (s *Searcher) AsyncSearchWord(w []byte, result chan map[int][]int,
+func (s *Searcher) AsyncSearchWord(w []byte, result chan map[int]bool,
 	done chan struct{}) {
 
-	idxs := s.SearchPhrase(w)
+	idxs, _ := s.SearchPhrase(w)
 	select {
 	case result <- idxs:
 	case <-done:
@@ -136,13 +136,13 @@ func (s *Searcher) AsyncSearchWord(w []byte, result chan map[int][]int,
 	}
 }
 
-func (s *Searcher) SearchAllWords(query []byte) map[int][]int {
+func (s *Searcher) SearchAllWords(query []byte) (map[int]bool, [][]byte) {
 	// returns the set of ids for the paragraphs containing
 	// all words in the query (even if they are not contiguous)
 	words := bytes.Split(query, []byte(" "))
-	partChans := make(chan map[int][]int, len(words))
+	partChans := make(chan map[int]bool, len(words))
 	done := make(chan struct{})
-	var partials []map[int][]int
+	var partials []map[int]bool
 	for _, word := range words {
 		go s.AsyncSearchWord(word, partChans, done)
 	}
@@ -150,18 +150,18 @@ func (s *Searcher) SearchAllWords(query []byte) map[int][]int {
 		if len(part) < 1 {
 			// early return when no intersection is possible
 			close(done)
-			return map[int][]int{}
+			return map[int]bool{}, words
 		}
 		partials = append(partials, part)
 		if len(partials) == len(words) {
 			close(partChans)
 		}
 	}
-	return intersection(partials)
+	return intersection(partials), words
 }
 
-func searchIndexInLines(baseIdx int, searchIdx int, lines []string) int {
-	lineIdx := baseIdx
+func searchIndexInLines(searchIdx int, lines []string) int {
+	lineIdx := 0
 	for i, line := range lines {
 		lineIdx = lineIdx + len(line)
 		if lineIdx > searchIdx {
@@ -171,7 +171,7 @@ func searchIndexInLines(baseIdx int, searchIdx int, lines []string) int {
 	return len(lines)
 }
 
-func (s *Searcher) ResultText(paragraphId int, indexes []int) TextResponse {
+func (s *Searcher) ResultText(paragraphId int, words [][]byte) (TextResponse, error) {
 	p := s.resultParagraphs.Get(paragraphId)
 	pText := s.CompleteWorks[p.from:p.to]
 	w, _ := s.sections.FindWorkByTextIndex(p.from)
@@ -180,7 +180,11 @@ func (s *Searcher) ResultText(paragraphId int, indexes []int) TextResponse {
 		title = w.title
 	}
 	textLines := strings.Split(pText, "\n")
-	lineForWord := searchIndexInLines(p.from, indexes[0], textLines)
+	midWordIdx, err := searchInText(pText, words)
+	if err != nil {
+		return TextResponse{}, err
+	}
+	lineForWord := searchIndexInLines(midWordIdx[0], textLines)
 	if len(textLines) > MAXLINES {
 		textLines = balanceLines(textLines, lineForWord)
 	}
@@ -190,20 +194,25 @@ func (s *Searcher) ResultText(paragraphId int, indexes []int) TextResponse {
 		Text: textLines,
 		Work: title,
 	}
-	return res
+	return res, nil
 }
 
 func (s *Searcher) Search(query string, mode string) []TextResponse {
 	simplifiedQuery := simplifyText([]byte(query))
 	var results []TextResponse
-	var paragraphs map[int][]int
+	var words [][]byte
+	var paragraphs map[int]bool
 	if mode == AWMODE {
-		paragraphs = s.SearchAllWords(simplifiedQuery)
+		paragraphs, words = s.SearchAllWords(simplifiedQuery)
 	} else {
-		paragraphs = s.SearchPhrase(simplifiedQuery)
+		paragraphs, words = s.SearchPhrase(simplifiedQuery)
 	}
-	for id, indexes := range paragraphs {
-		text := s.ResultText(id, indexes)
+	for id := range paragraphs {
+		text, err := s.ResultText(id, words)
+		if err != nil {
+			log.Panic(err)
+			continue
+		}
 		results = append(results, text)
 	}
 	return results
