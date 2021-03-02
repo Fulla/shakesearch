@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	PHRMODE = "phr"
-	AWMODE  = "aw"
+	PHRMODE  = "phr"
+	AWMODE   = "aw"
+	MAXLINES = 10
 )
 
 func main() {
@@ -108,23 +109,23 @@ func (s *Searcher) Load(filename string) error {
 	return nil
 }
 
-func (s *Searcher) SearchPhrase(query []byte) map[int]bool {
+func (s *Searcher) SearchPhrase(query []byte) map[int][]int {
 	// returns the list of ids for the paragraphs containing
 	// the exact phrase in query
 	idxs := s.SuffixArray.Lookup(query, -1)
-	pIds := make(map[int]bool, 0)
+	pIds := make(map[int][]int, 0)
 	for _, idx := range idxs {
 		pId, err := s.searchParagraphs.ParagraphForTextIndex(idx)
 		if err != nil {
 			log.Panic(err)
 			continue
 		}
-		pIds[pId] = true
+		pIds[pId] = []int{idx, idx + len(query)}
 	}
 	return pIds
 }
 
-func (s *Searcher) AsyncSearchWord(w []byte, result chan map[int]bool,
+func (s *Searcher) AsyncSearchWord(w []byte, result chan map[int][]int,
 	done chan struct{}) {
 
 	idxs := s.SearchPhrase(w)
@@ -135,13 +136,13 @@ func (s *Searcher) AsyncSearchWord(w []byte, result chan map[int]bool,
 	}
 }
 
-func (s *Searcher) SearchAllWords(query []byte) map[int]bool {
+func (s *Searcher) SearchAllWords(query []byte) map[int][]int {
 	// returns the set of ids for the paragraphs containing
 	// all words in the query (even if they are not contiguous)
 	words := bytes.Split(query, []byte(" "))
-	partChans := make(chan map[int]bool, len(words))
+	partChans := make(chan map[int][]int, len(words))
 	done := make(chan struct{})
-	var partials []map[int]bool
+	var partials []map[int][]int
 	for _, word := range words {
 		go s.AsyncSearchWord(word, partChans, done)
 	}
@@ -149,7 +150,7 @@ func (s *Searcher) SearchAllWords(query []byte) map[int]bool {
 		if len(part) < 1 {
 			// early return when no intersection is possible
 			close(done)
-			return map[int]bool{}
+			return map[int][]int{}
 		}
 		partials = append(partials, part)
 		if len(partials) == len(words) {
@@ -159,7 +160,18 @@ func (s *Searcher) SearchAllWords(query []byte) map[int]bool {
 	return intersection(partials)
 }
 
-func (s *Searcher) ResultText(paragraphId int) TextResponse {
+func searchIndexInLines(baseIdx int, searchIdx int, lines []string) int {
+	lineIdx := baseIdx
+	for i, line := range lines {
+		lineIdx = lineIdx + len(line)
+		if lineIdx > searchIdx {
+			return i
+		}
+	}
+	return len(lines)
+}
+
+func (s *Searcher) ResultText(paragraphId int, indexes []int) TextResponse {
 	p := s.resultParagraphs.Get(paragraphId)
 	pText := s.CompleteWorks[p.from:p.to]
 	w, _ := s.sections.FindWorkByTextIndex(p.from)
@@ -168,6 +180,10 @@ func (s *Searcher) ResultText(paragraphId int) TextResponse {
 		title = w.title
 	}
 	textLines := strings.Split(pText, "\n")
+	lineForWord := searchIndexInLines(p.from, indexes[0], textLines)
+	if len(textLines) > MAXLINES {
+		textLines = balanceLines(textLines, lineForWord)
+	}
 	textLines = append([]string{"[...]"}, textLines...)
 	textLines = append(textLines, "[...]")
 	res := TextResponse{
@@ -180,14 +196,14 @@ func (s *Searcher) ResultText(paragraphId int) TextResponse {
 func (s *Searcher) Search(query string, mode string) []TextResponse {
 	simplifiedQuery := simplifyText([]byte(query))
 	var results []TextResponse
-	var paragraphs map[int]bool
+	var paragraphs map[int][]int
 	if mode == AWMODE {
 		paragraphs = s.SearchAllWords(simplifiedQuery)
 	} else {
 		paragraphs = s.SearchPhrase(simplifiedQuery)
 	}
-	for id := range paragraphs {
-		text := s.ResultText(id)
+	for id, indexes := range paragraphs {
+		text := s.ResultText(id, indexes)
 		results = append(results, text)
 	}
 	return results

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"regexp"
 	"strings"
 )
@@ -68,30 +69,30 @@ func newParagraphs(text string) *Paragraphs {
 	return ps
 }
 
-func allContain(sets []map[int]bool, elem int) bool {
+func allContain(sets []map[int][]int, elem int) bool {
 	for _, s := range sets {
-		if !s[elem] {
+		if _, ok := s[elem]; ok {
 			return false
 		}
 	}
 	return true
 }
 
-func intersection(sets []map[int]bool) map[int]bool {
+func intersection(sets []map[int][]int) map[int][]int {
 	if len(sets) < 1 {
-		return map[int]bool{}
+		return map[int][]int{}
 	}
 	if len(sets) == 1 {
 		return sets[0]
 	}
 	base := sets[0]
 	others := sets[1:]
-	intersec := make(map[int]bool)
-	for elem := range base {
+	intersec := make(map[int][]int)
+	for elem, indexes := range base {
 		if !allContain(others, elem) {
 			continue
 		}
-		intersec[elem] = true
+		intersec[elem] = indexes
 	}
 	return intersec
 }
@@ -144,7 +145,7 @@ func getTitles(beginning string) []string {
 
 func getWorks(text string, titles []string, shiftIndex int) []Work {
 	titlesOpts := strings.Join(titles, "|")
-	rexp := fmt.Sprintf("[\n\r]{2,}(?P<title>(%s))[\n\r]{2,}", titlesOpts)
+	rexp := fmt.Sprintf("(?P<title>(%s))[\n\r]{2,}", titlesOpts)
 	workRe, _ := regexp.Compile(rexp)
 	matches := workRe.FindAllStringSubmatchIndex(text, -1)
 	var works []Work
@@ -184,4 +185,25 @@ func newSections(text string) *Sections {
 		log.Panic(err)
 	}
 	return s
+}
+
+func maxInt(a, b int) int {
+	if a >= b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a <= b {
+		return a
+	}
+	return b
+}
+
+func balanceLines(lines []string, targetLine int) []string {
+	startLine := maxInt(targetLine-MAXLINES, 0)
+	endLine := minInt(targetLine+MAXLINES, len(lines))
+	half := int(math.Floor((float64(startLine) + float64(endLine)) / float64(2)))
+	return lines[half-MAXLINES/2 : half+(MAXLINES/2)]
 }
