@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 )
 
 const (
@@ -51,8 +52,8 @@ type Searcher struct {
 }
 
 type TextResponse struct {
-	Text string `json:"text"`
-	Work string `json:"work"`
+	Text []string `json:"text"`
+	Work string   `json:"work"`
 }
 
 func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request) {
@@ -166,9 +167,11 @@ func (s *Searcher) ResultText(paragraphId int) TextResponse {
 	if w != nil {
 		title = w.title
 	}
-
+	textLines := strings.Split(pText, "\n")
+	textLines = append([]string{"[...]"}, textLines...)
+	textLines = append(textLines, "[...]")
 	res := TextResponse{
-		Text: pText,
+		Text: textLines,
 		Work: title,
 	}
 	return res
